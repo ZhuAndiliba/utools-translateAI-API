@@ -1,0 +1,22 @@
+{
+  "main": "index.html",
+  "preload": "preload/services.js",
+  "logo": "logo.png",
+  "development": {
+    "main": "http://localhost:5173"
+  },
+  "features": [
+    {
+      "code": "translate",
+      "explain": "智能翻译工具，支持百度翻译和 AI 翻译引擎（DeepSeek 等），可同时使用多个翻译引擎对比结果，支持从剪贴板粘贴文本快速翻译",
+      "cmds": [
+        "翻译",
+        "translate",
+        {
+          "type": "over",
+          "label": "翻译文本"
+        }
+      ]
+    }
+  ]
+}
