@@ -27,45 +27,43 @@
       <!-- 译文展示区域 -->
       <div class="section">
         <h3 class="section-title">译文</h3>
-        <n-grid x-gap="8" y-gap="8" :cols="getGridCols" responsive="screen">
-          <!-- 百度翻译结果 -->
-          <n-gi v-if="appStore.normalTranslators.baidu.isActive">
-            <TranslationCard
-              :name="'百度翻译'"
-              :loading="appStore.normalTranslators.baidu.loading"
-              :text="appStore.normalTranslators.baidu.translatedText"
-              :error="appStore.normalTranslators.baidu.error"
+        <div class="translation-result-container">
+          <!-- 左侧菜单栏 -->
+          <div class="translator-menu">
+            <n-menu
+              v-model:value="selectedTranslatorKey"
+              :options="translatorMenuOptions"
+              @update:value="handleTranslatorSelect"
             />
-          </n-gi>
-
-          <!-- 火山引擎翻译结果 -->
-          <n-gi v-if="appStore.normalTranslators.volcengine.isActive">
+          </div>
+          <!-- 右侧翻译内容 -->
+          <div class="translation-content">
             <TranslationCard
-              :name="'火山引擎翻译'"
-              :loading="appStore.normalTranslators.volcengine.loading"
-              :text="appStore.normalTranslators.volcengine.translatedText"
-              :error="appStore.normalTranslators.volcengine.error"
+              v-if="currentTranslator"
+              :name="currentTranslator.name"
+              :loading="currentTranslator.loading"
+              :text="currentTranslator.text"
+              :error="currentTranslator.error"
+              :is-large="true"
             />
-          </n-gi>
-
-          <!-- AI翻译器结果 -->
-          <template v-for="(translator, i) in appStore.AITranslators" :key="i">
-            <n-gi v-if="translator.isActive">
-              <TranslationCard :name="`${translator.name}-${translator.model}`" :loading="translator.loading" :text="translator.translatedText" :error="translator.error" />
-            </n-gi>
-          </template>
-        </n-grid>
+            <div v-else class="empty-state">
+              <n-text depth="3">请选择一个翻译器查看结果</n-text>
+            </div>
+          </div>
+        </div>
       </div>
     </n-space>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { onMounted, ref, computed, inject, watch, nextTick } from "vue";
+import { onMounted, ref, computed, inject, watch, nextTick, h } from "vue";
 import { useRouter } from "vue-router";
 import { useAppStore, languageOptions } from "../../stores";
-import { NButton, NSpace, NGrid, NGi, NText, NSelect, useMessage } from "naive-ui";
+import { NButton, NSpace, NGrid, NGi, NText, NSelect, NMenu, NIcon, NSpin, useMessage } from "naive-ui";
 import TranslationCard from "../HomePage/TranslationCard.vue";
+import type { MenuOption } from "naive-ui";
+import { CheckmarkCircle, CloseCircle } from "@vicons/ionicons5";
 
 // 原文输入内容
 const originalText = ref("");
@@ -73,6 +71,9 @@ const appStore = useAppStore();
 const router = useRouter();
 const message = useMessage();
 const enterAction = inject("enterAction", ref({}));
+
+// 当前选中的翻译器key
+const selectedTranslatorKey = ref<string | null>(null);
 
 // 当前选择的语言标签（用于 n-select 绑定）
 const selectedLanguageLabel = computed({
@@ -88,15 +89,160 @@ const selectedLanguageLabel = computed({
 // 计算是否正在翻译
 const isTranslating = computed(() => {
   const baiduLoading = appStore.normalTranslators.baidu.isActive && appStore.normalTranslators.baidu.loading;
+  const volcengineLoading = appStore.normalTranslators.volcengine.isActive && appStore.normalTranslators.volcengine.loading;
   const aiLoading = appStore.AITranslators.some((t) => t.isActive && t.loading);
-  return baiduLoading || aiLoading;
+  return baiduLoading || volcengineLoading || aiLoading;
 });
 
-// 响应式网格列数
-const getGridCols = computed(() => {
-  const activeCount = (appStore.normalTranslators.baidu.isActive ? 1 : 0) + appStore.AITranslators.filter((t) => t.isActive).length;
-  return activeCount <= 1 ? 1 : 2;
+// 获取翻译器状态的辅助函数
+const getTranslatorStatus = (key: string) => {
+  if (key === "baidu") {
+    const translator = appStore.normalTranslators.baidu;
+    return {
+      loading: translator.loading,
+      hasText: !!translator.translatedText,
+      hasError: !!translator.error,
+      textLength: translator.translatedText.length,
+    };
+  }
+  
+  if (key === "volcengine") {
+    const translator = appStore.normalTranslators.volcengine;
+    return {
+      loading: translator.loading,
+      hasText: !!translator.translatedText,
+      hasError: !!translator.error,
+      textLength: translator.translatedText.length,
+    };
+  }
+  
+  if (key.startsWith("ai-")) {
+    const index = parseInt(key.replace("ai-", ""));
+    const translator = appStore.AITranslators[index];
+    if (translator) {
+      return {
+        loading: translator.loading,
+        hasText: !!translator.translatedText,
+        hasError: !!translator.error,
+        textLength: translator.translatedText.length,
+      };
+    }
+  }
+  
+  return {
+    loading: false,
+    hasText: false,
+    hasError: false,
+    textLength: 0,
+  };
+};
+
+// 创建带状态的菜单标签
+const createMenuLabel = (name: string, key: string) => {
+  const status = getTranslatorStatus(key);
+  
+  return h("div", { class: "menu-item-label" }, [
+    h("span", { class: "menu-item-status" }, [
+      status.loading
+        ? h(NSpin, { size: 12 })
+        : status.hasError
+        ? h(NIcon, { component: CloseCircle, size: 14, color: "#d03050" })
+        : status.hasText
+        ? h(NIcon, { component: CheckmarkCircle, size: 14, color: "#18a058" })
+        : null,
+    ]),
+    h("span", { class: "menu-item-name" }, name),
+  ]);
+};
+
+// 翻译器菜单选项
+const translatorMenuOptions = computed<MenuOption[]>(() => {
+  const options: MenuOption[] = [];
+  
+  // 百度翻译
+  if (appStore.normalTranslators.baidu.isActive) {
+    options.push({
+      label: () => createMenuLabel("百度翻译", "baidu"),
+      key: "baidu",
+    });
+  }
+  
+  // 火山引擎翻译
+  if (appStore.normalTranslators.volcengine.isActive) {
+    options.push({
+      label: () => createMenuLabel("火山引擎翻译", "volcengine"),
+      key: "volcengine",
+    });
+  }
+  
+  // AI翻译器
+  appStore.AITranslators.forEach((translator, index) => {
+    if (translator.isActive) {
+      const name = `${translator.name}-${translator.model}`;
+      options.push({
+        label: () => createMenuLabel(name, `ai-${index}`),
+        key: `ai-${index}`,
+      });
+    }
+  });
+  
+  // 如果有可用的翻译器且当前没有选中，或者当前选中的翻译器不在列表中，自动选中第一个
+  if (options.length > 0) {
+    if (!selectedTranslatorKey.value || !options.find(opt => opt.key === selectedTranslatorKey.value)) {
+      selectedTranslatorKey.value = options[0].key as string;
+    }
+  } else {
+    // 如果没有可用的翻译器，清空选中状态
+    selectedTranslatorKey.value = null;
+  }
+  
+  return options;
 });
+
+// 当前选中的翻译器数据
+const currentTranslator = computed(() => {
+  if (!selectedTranslatorKey.value) return null;
+  
+  const key = selectedTranslatorKey.value;
+  
+  if (key === "baidu") {
+    return {
+      name: "百度翻译",
+      loading: appStore.normalTranslators.baidu.loading,
+      text: appStore.normalTranslators.baidu.translatedText,
+      error: appStore.normalTranslators.baidu.error,
+    };
+  }
+  
+  if (key === "volcengine") {
+    return {
+      name: "火山引擎翻译",
+      loading: appStore.normalTranslators.volcengine.loading,
+      text: appStore.normalTranslators.volcengine.translatedText,
+      error: appStore.normalTranslators.volcengine.error,
+    };
+  }
+  
+  if (key.startsWith("ai-")) {
+    const index = parseInt(key.replace("ai-", ""));
+    const translator = appStore.AITranslators[index];
+    if (translator) {
+      return {
+        name: `${translator.name}-${translator.model}`,
+        loading: translator.loading,
+        text: translator.translatedText,
+        error: translator.error,
+      };
+    }
+  }
+  
+  return null;
+});
+
+// 处理翻译器选择
+const handleTranslatorSelect = (key: string) => {
+  selectedTranslatorKey.value = key;
+};
 
 /**
  * 执行翻译操作
@@ -110,10 +256,15 @@ const translate = async () => {
   // 清空之前的翻译结果和错误
   appStore.normalTranslators.baidu.translatedText = "";
   appStore.normalTranslators.baidu.error = "";
+  appStore.normalTranslators.volcengine.translatedText = "";
+  appStore.normalTranslators.volcengine.error = "";
   appStore.AITranslators.forEach((t) => {
     t.translatedText = "";
     t.error = "";
   });
+  
+  // 重置选中状态，让菜单自动选择第一个
+  selectedTranslatorKey.value = null;
 
   const langOption = appStore.selectedLanguageOption;
   await appStore.translate(originalText.value, langOption.from, langOption.to);
@@ -234,6 +385,63 @@ onMounted(() => {
   min-width: 80px;
 }
 
+.translation-result-container {
+  display: flex;
+  gap: 12px;
+  min-height: 400px;
+}
+
+.translator-menu {
+  width: 200px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 8px 0;
+}
+
+.menu-item-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+
+.menu-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-item-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.status-text {
+  font-size: 11px;
+  color: #666;
+}
+
+.translation-content {
+  flex: 1;
+  min-height: 400px;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .translation-container {
@@ -246,6 +454,14 @@ onMounted(() => {
 
   .original-input {
     min-height: 100px;
+  }
+  
+  .translation-result-container {
+    flex-direction: column;
+  }
+  
+  .translator-menu {
+    width: 100%;
   }
 }
 </style>

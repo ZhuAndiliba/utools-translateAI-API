@@ -1,5 +1,5 @@
 <template>
-  <n-card class="translation-card" :bordered="false">
+  <n-card :class="['translation-card', { 'is-large': isLarge }]" :bordered="false">
     <div class="card-header">
       <div class="card-title-wrapper">
         <n-text class="card-title" :depth="1">{{ name }}</n-text>
@@ -32,6 +32,7 @@ const props = defineProps<{
   loading: boolean;
   text: string;
   error?: string;
+  isLarge?: boolean;
 }>();
 
 const message = useMessage();
@@ -100,6 +101,10 @@ const copyText = async () => {
   min-height: 120px;
 }
 
+.translation-card.is-large .card-content {
+  min-height: 360px;
+}
+
 .translated-text {
   width: 100%;
   min-height: 120px;
@@ -115,6 +120,13 @@ const copyText = async () => {
   color: #333;
   cursor: text;
   overflow-y: auto;
+}
+
+.translation-card.is-large .translated-text {
+  min-height: 360px;
+  max-height: none;
+  font-size: 14px;
+  padding: 12px;
 }
 
 .translated-text:focus {
@@ -139,5 +151,9 @@ const copyText = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.translation-card.is-large .error-message {
+  min-height: 360px;
 }
 </style>
